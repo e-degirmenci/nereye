@@ -169,27 +169,44 @@ const CUISINE_TR = {
 const AMENITY_TR = { restaurant:"Restoran", fast_food:"Hızlı yemek", bar:"Bar", pub:"Pub", biergarten:"Biergarten", cafe:"Kafe" };
 const DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
 
-// OSM opening_hours alanının yaygın biçimlerini çözer: "Mo-Fr 11:00-23:00; Sa,Su 12:00-01:00; Mo off", "24/7".
-// Çözülemeyen bir şey görürse null döner (saat bilinmiyor).
+// OSM opening_hours alanının yaygın biçimlerini çözer: "Mo-Fr 11:00-23:00; Sa,Su 12:00-01:00; Mo off", "24/7",
+// "Su-Th 15:00-01:00, Fr-Sa 15:00-03:00", "May-Sep: Tu-Sa 12:00-22:00". Çözülemeyen bir şey görürse null döner (saat bilinmiyor).
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function monthOk(sel){
+  const now=new Date().getMonth();
+  return sel.split(",").some(piece=>{
+    const [a,b]=piece.split("-"); const i=MONTHS.indexOf(a), j=b!=null?MONTHS.indexOf(b):i;
+    if(i<0||j<0) return false;
+    for(let k=i;;k=(k+1)%12){ if(k===now) return true; if(k===j) return false; }
+  });
+}
 function parseOsmHours(str){
   if(!str) return null;
-  str=String(str).trim();
+  str=String(str).trim().replace(/"[^"]*"/g,"");
   if(/^24\/7$/.test(str)) return {always:true,rules:[]};
   const perDay=[null,null,null,null,null,null,null];
-  const parts=str.split(/\s*(?:;|\|\|)\s*/).filter(Boolean);
-  for(let part of parts){
-    part=part.replace(/"[^"]*"/g,"").trim();
-    if(/^(PH|SH)\b/.test(part)) continue;              // resmi tatil kuralları: atla
-    let m=part.match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:\s*[-,]\s*(?:Mo|Tu|We|Th|Fr|Sa|Su))*)(?:\s*,\s*PH)?\s*(.*)$/);
+  const W="(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)";
+  const rules=[];
+  str.split(/\s*(?:;|\|\|)\s*/).filter(Boolean).forEach(part=>{
+    part.split(new RegExp("(?<=[0-9+]|off|closed)\\s*,\\s*(?="+W+"\\b)")).forEach((sub,i)=>rules.push({text:sub.trim(),additive:i>0}));
+  });
+  let seasonalSeen=false, seasonalMatched=false;
+  for(const {text:raw,additive} of rules){
+    let part=raw;
+    const mm=part.match(/^((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))?(?:,(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))?)*):?\s+(.*)$/);
+    if(mm){ seasonalSeen=true; if(!monthOk(mm[1])) continue; seasonalMatched=true; part=mm[2]; }
+    else if(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|week|easter|\d{4})/.test(part)) return null;
+    const m=part.match(new RegExp("^("+W+"(?:\\s*[-,]\\s*"+W+")*)\\s*(.*)$"));
     let days, rest;
-    if(m){ days=expandDays(m[1].replace(/\s+/g,"")); rest=m[2].trim(); }
-    else { days=[0,1,2,3,4,5,6]; rest=part; }
+    if(m){
+      const sel=m[1].replace(/\s+/g,"").split(",").filter(x=>!/^(PH|SH)$/.test(x)).join(",");
+      if(!sel) continue;                                   // sadece tatil günü kuralı: atla
+      days=expandDays(sel); rest=m[2].trim();
+    } else { days=[0,1,2,3,4,5,6]; rest=part; }
     if(!days) return null;
     rest=rest.replace(/\bopen\b/,"").trim();
-    let spans;
-    if(/^(off|closed)$/i.test(rest)) spans=[];
-    else{
-      spans=[];
+    let spans=[];
+    if(!/^(off|closed)$/i.test(rest)){
       for(const t of rest.replace(/\s+/g,"").split(",").filter(Boolean)){
         const tm=t.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})\+?$/) || t.match(/^(\d{1,2}):(\d{2})\+$/);
         if(!tm) return null;
@@ -199,12 +216,13 @@ function parseOsmHours(str){
         spans.push([o,c]);
       }
     }
-    days.forEach(d=>perDay[d]=spans);
+    days.forEach(d=>{ perDay[d] = additive && perDay[d] ? perDay[d].concat(spans) : spans; });
   }
-  const rules=[];
-  perDay.forEach((spans,d)=>{ (spans||[]).forEach(([o,c])=>rules.push({d:String(d),o,c})); });
+  if(seasonalSeen && !seasonalMatched && perDay.every(x=>x===null)) return {always:false,rules:[]};  // bu ay kapalı
   if(perDay.every(x=>x===null)) return null;
-  return {always:false,rules};
+  const out=[];
+  perDay.forEach((spans,d)=>{ (spans||[]).forEach(([o,c])=>out.push({d:String(d),o,c})); });
+  return {always:false,rules:out};
 }
 function expandDays(sel){
   const out=new Set();
