@@ -37,3 +37,14 @@ Repo GitHub Pages ile yayınlanır: **Settings → Pages → Branch: `main` / `(
 Adres: `https://e-degirmenci.github.io/nereye/`
 
 Konum izni sadece HTTPS adreslerde çalışır; GitHub Pages bunu otomatik sağlar.
+
+## Saat düzeltmeleri
+
+OpenStreetMap'teki saatler bazen eskidir. Yanlış olduğu bilinen mekanlar `data/overrides.json` dosyasında düzeltilir:
+
+```json
+{ "o_n7027262421": { "opening_hours": null, "note": "Saatler güncel değil" } }
+```
+
+`opening_hours` OSM biçiminde bir metin olabilir (`"Mo-Sa 11:00-23:00; Su off"`) ya da `null` (saat bilinmiyor; "sadece açık" filtresinde gizlenir).
+Uygulamadaki "Bu saatler yanlış" butonu aynı şeyi sadece o telefonda yapar.

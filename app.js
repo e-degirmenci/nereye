@@ -269,6 +269,7 @@ function osmToVenue(e){
     n:t.name, c, k:kind, a:street || t["addr:suburb"] || "",
     p:0, lat, lon, rating:null, ratingCount:0,
     rules:h?h.rules:null, always:!!(h&&h.always),
+    checked:(t["check_date:opening_hours"]||t.check_date||t["survey:date"]||"").slice(0,7)||null,
     url:null, t:extras.join(" · ")
   };
 }
@@ -280,9 +281,33 @@ function loadRegion(){
     .then(d=>{
       const vs=[];
       (d.elements||[]).forEach(([key,lat,lon,tags])=>{ const v=osmToVenue({type:key[0]==="n"?"node":key[0]==="w"?"way":"relation",id:key.slice(1),lat,lon,tags}); if(v){ BY_ID[v.id]=v; vs.push(v); } });
-      REGION.data={bbox:d.bbox,venues:vs}; REGION.generated=d.generated; return REGION.data;
+      REGION.data={bbox:d.bbox,venues:vs}; REGION.generated=d.generated;
+      return fetch("data/overrides.json",{cache:"no-cache"}).then(r=>r.ok?r.json():{}).catch(()=>({})).then(ov=>{ applyOverrides(ov); return REGION.data; });
     }).catch(()=>{ REGION.data=null; return null; });
   return REGION.loading;
+}
+/* Saat düzeltmeleri: data/overrides.json (herkes için) + "Bu saatler yanlış" işaretleri (sadece bu telefonda) */
+const flagged=new Set(store.get("nereye.badhours",[]));
+function applyOverrides(ov){
+  Object.entries(ov||{}).forEach(([id,o])=>{
+    const v=BY_ID[id]; if(!v||!o) return;
+    if(typeof o.opening_hours==="string"){ const h=parseOsmHours(o.opening_hours); v.rules=h?h.rules:null; v.always=!!(h&&h.always); v.fixed=true; }
+    else if(o.opening_hours===null){ v.rules=null; v.always=false; v.fixed=true; }
+    if(o.note) v.fixNote=String(o.note);
+  });
+  flagged.forEach(id=>{ const v=BY_ID[id]; if(v) markFlag(v,true); });
+}
+function markFlag(v,on){
+  if(on){ if(!v.flagged){ v._rules=v.rules; v._always=v.always; } v.rules=null; v.always=false; v.flagged=true; }
+  else { if(v.flagged){ v.rules=v._rules; v.always=v._always; } v.flagged=false; }
+}
+function toggleFlag(id){
+  const v=BY_ID[id]; if(!v) return;
+  const on=!v.flagged; markFlag(v,on);
+  if(on) flagged.add(id); else flagged.delete(id);
+  store.set("nereye.badhours",[...flagged]);
+  toast(on?"İşaretlendi. Bu mekanın saatine artık güvenmiyorum.":"İşaret kaldırıldı");
+  render();
 }
 function insideBox(o,rKm,b){
   const dLat=rKm/111, dLon=rKm/(111*Math.cos(rad(o.lat)));
@@ -446,6 +471,12 @@ function cardEl(v){
   meta.appendChild(el("span","mono",distLabel(distFor(v.id))));
   if(v.p) meta.appendChild(el("span","mono",price(v.p)));
   body.appendChild(meta);
+  if(v.flagged){
+    const line=el("div","hoursline"); line.appendChild(el("span","status closed","Saatleri yanlış işaretledin"));
+    const u=el("button","linkbtn","Geri al"); u.onclick=()=>toggleFlag(v.id); line.appendChild(u); body.appendChild(line);
+  } else if(v.fixed && !v.rules && !v.always){
+    body.appendChild(el("div","hoursline fine", v.fixNote||"Bu mekanın saatleri doğrulanamadı. Google Maps'e bak."));
+  }
   if(v.rules||v.always){
     const showDay = ctxNow.min<6*60 && !(v.always) ? (ctxNow.day+6)%7 : ctxNow.day;   // gece yarısından sonra: önceki günün akşamı
     const today=berlinNow().day;
@@ -455,7 +486,10 @@ function cardEl(v){
     const tb=el("div","weekgrid");
     for(let d=0;d<7;d++){ const a=el("span",d===showDay?"cur":null,DAY_SHORT[d]); const b=el("span","mono"+(d===showDay?" cur":""),daySpansText(v,d)); tb.append(a,b); }
     det.appendChild(tb);
-    if(v.src==="osm") det.appendChild(el("p","fine","Saatler OpenStreetMap'ten; eski olabilir. Emin olmak için Google Maps'e bak."));
+    if(v.src==="osm"){
+      det.appendChild(el("p","fine", v.fixed ? "Saatler elle düzeltildi." : v.checked ? "OpenStreetMap'te en son "+v.checked+" tarihinde kontrol edilmiş." : "OpenStreetMap'te bu saatlerin ne zaman kontrol edildiği bilinmiyor; eski olabilir."));
+      const fb=el("button","linkbtn danger","Bu saatler yanlış"); fb.onclick=()=>toggleFlag(v.id); det.appendChild(fb);
+    }
     body.appendChild(det);
   }
   if(v.t) body.appendChild(el("p","note",v.t));
