@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 <div class="app" id="app">
@@ -54,7 +54,10 @@
       <input type="range" id="fRadius" min="0.5" max="6" step="0.5"></div>
     <div class="field"><span class="label">Ne arıyorsun?</span><div class="chips" id="fCats"></div></div>
     <div class="field"><span class="label">Fiyat</span><div class="chips" id="fPrice"></div></div>
-    <div class="field"><label class="label" for="fHour">Saat</label><select id="fHour"></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label class="label" for="fDay">Gün</label><select id="fDay"></select></div>
+      <div class="field"><label class="label" for="fHour">Saat</label><select id="fHour"></select></div>
+    </div>
     <label class="toggle" for="fOpen">Sadece o saatte açık olanlar<input type="checkbox" id="fOpen"></label>
     <button class="btn primary" id="applyFilter">Uygula</button>
     <p class="fine" id="dataNote"></p>
@@ -108,8 +111,8 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="config.js?v=5"></script>
-<script src="data.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="data.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

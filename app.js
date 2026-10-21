@@ -37,12 +37,19 @@ function berlinNow(){
   const g=t=>parts.find(p=>p.type===t).value;
   return {day:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(g("weekday")), min:(Number(g("hour"))%24)*60+Number(g("minute"))};
 }
-function timeCtx(hour){
-  const now=berlinNow();
-  if(hour==="now") return {day:now.day,min:now.min,label:"Şimdi"};
-  const h=Number(hour); let day=now.day;
-  if(h<6 && now.min>=6*60) day=(day+1)%7;
-  return {day,min:h*60,label:fmt(h*60)};
+const DAY_NAMES=["Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi","Pazar"];
+const DAY_SHORT=["Pzt","Sal","Çar","Per","Cum","Cmt","Paz"];
+function baseDay(day){ const now=berlinNow(); if(day==="tomorrow") return (now.day+1)%7; if(day==null||day==="today") return now.day; return Number(day); }
+// day: "today" | "tomorrow" | "0".."6" (0=Pzt). Saat 06:00'dan önceki saatler o günün gecesi sayılır (Cuma 02:00 = Cumartesi sabahı).
+function timeCtx(hour, day){
+  const now=berlinNow(), isToday=(day==null||day==="today");
+  if(hour==="now" && isToday) return {day:now.day,min:now.min,label:"Şimdi",today:true,baseDay:now.day};
+  if(hour==="now") hour="20";
+  const h=Number(hour), base=baseDay(day);
+  let d=base;
+  if(h<6 && !(isToday && now.min<6*60)) d=(base+1)%7;
+  const dayLabel = isToday ? "Bugün" : day==="tomorrow" ? "Yarın" : DAY_NAMES[base];
+  return {day:d,min:h*60,label:(isToday?"":dayLabel+" ")+fmt(h*60)+(h<6&&!isToday?" (gece)":""),today:isToday,baseDay:base};
 }
 // Kurallar: {d:"günler (0=Pzt)", o:dakika, c:dakika (gece yarısını geçebilir)}
 function rulesFromSample(h){return h.map(([d,o,c])=>{const om=toMin(o);let cm=toMin(c);if(cm<=om)cm+=1440;return {d,o:om,c:cm};});}
@@ -51,13 +58,20 @@ function openInfo(v,ctx){
   if(!v.rules||!v.rules.length) return {open:null,text:"Saat bilgisi yok"};
   const rs=v.rules, prev=(ctx.day+6)%7;
   for(const r of rs){
-    if(r.d.includes(String(ctx.day)) && ctx.min>=r.o && ctx.min<r.c) return {open:true,text:"Açık · kapanış "+fmt(r.c)};
-    if(r.d.includes(String(prev)) && r.c>1440 && ctx.min<r.c-1440) return {open:true,text:"Açık · kapanış "+fmt(r.c)};
+    if(r.d.includes(String(ctx.day)) && ctx.min>=r.o && ctx.min<r.c) return {open:true,text:"Açık · kapanış "+(r.e?"belirsiz":fmt(r.c))};
+    if(r.d.includes(String(prev)) && r.c>1440 && ctx.min<r.c-1440) return {open:true,text:"Açık · kapanış "+(r.e?"belirsiz":fmt(r.c))};
   }
   const later=rs.filter(r=>r.d.includes(String(ctx.day))&&r.o>ctx.min).sort((a,b)=>a.o-b.o)[0];
   if(later) return {open:false,text:"Kapalı · açılış "+fmt(later.o)};
   const tom=rs.filter(r=>r.d.includes(String((ctx.day+1)%7))).sort((a,b)=>a.o-b.o)[0];
   return {open:false,text: tom? "Kapalı · yarın "+fmt(tom.o) : "Bugün kapalı"};
+}
+function daySpansText(v,day){
+  if(v.always) return "24 saat açık";
+  if(!v.rules) return "bilinmiyor";
+  const sp=v.rules.filter(r=>r.d.includes(String(day))).sort((a,b)=>a.o-b.o);
+  if(!sp.length) return "Kapalı";
+  return sp.map(r=>fmt(r.o)+"–"+(r.e?"?":fmt(r.c))).join(", ");
 }
 const store={
   get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}},
@@ -213,7 +227,7 @@ function parseOsmHours(str){
         const o=Number(tm[1])*60+Number(tm[2]);
         let c= tm[3]!=null ? Number(tm[3])*60+Number(tm[4]) : o+6*60;
         if(c<=o) c+=1440;
-        spans.push([o,c]);
+        spans.push([o,c,tm[3]==null]);
       }
     }
     days.forEach(d=>{ perDay[d] = additive && perDay[d] ? perDay[d].concat(spans) : spans; });
@@ -221,7 +235,7 @@ function parseOsmHours(str){
   if(seasonalSeen && !seasonalMatched && perDay.every(x=>x===null)) return {always:false,rules:[]};  // bu ay kapalı
   if(perDay.every(x=>x===null)) return null;
   const out=[];
-  perDay.forEach((spans,d)=>{ (spans||[]).forEach(([o,c])=>out.push({d:String(d),o,c})); });
+  perDay.forEach((spans,d)=>{ (spans||[]).forEach(([o,c,e])=>out.push(e?{d:String(d),o,c,e:true}:{d:String(d),o,c})); });
   return {always:false,rules:out};
 }
 function expandDays(sel){
@@ -368,13 +382,13 @@ function effective(){
   const c=state.cfg;
   if(state.flow){
     const last=BY_ID[state.flow.stops[state.flow.stops.length-1]];
-    return {origin:{label:last.n,lat:last.lat,lon:last.lon},radius:1.2,cats:activeCats(["bar","beer"]),prices:c.prices,openOnly:true,hour:state.flow.hour};
+    return {origin:{label:last.n,lat:last.lat,lon:last.lon},radius:1.2,cats:activeCats(["bar","beer"]),prices:c.prices,openOnly:true,hour:state.flow.hour,day:state.flow.day};
   }
   const cats=activeCats(c.cats);
-  return {origin:originPoint(),radius:c.radius,cats:cats.length?cats:["food"],prices:c.prices,openOnly:c.openOnly,hour:c.hour};
+  return {origin:originPoint(),radius:c.radius,cats:cats.length?cats:["food"],prices:c.prices,openOnly:c.openOnly,hour:c.hour,day:c.day||"today"};
 }
 async function buildDeck(e){
-  const ctx=timeCtx(e.hour), dist={};
+  const ctx=timeCtx(e.hour,e.day), dist={};
   const exclude = state.flow? new Set(state.flow.stops):new Set();
   const pool = useLive() ? await fetchLive(e.origin,e.radius,e.cats) : SAMPLE_IDS;
   const ids=pool.filter(id=>{
@@ -428,9 +442,22 @@ function cardEl(v){
   if(v.rating!=null){ meta.appendChild(el("span","rating","★ "+v.rating.toFixed(1).replace(".",","))); meta.appendChild(el("span","mono","("+v.ratingCount.toLocaleString("tr-TR")+")")); }
   const oi=openInfo(v,state.ctx||timeCtx("now"));
   meta.appendChild(el("span","status "+(oi.open?"open":"closed"),oi.text));
+  const ctxNow=state.ctx||timeCtx("now");
   meta.appendChild(el("span","mono",distLabel(distFor(v.id))));
   if(v.p) meta.appendChild(el("span","mono",price(v.p)));
   body.appendChild(meta);
+  if(v.rules||v.always){
+    const showDay = ctxNow.min<6*60 && !(v.always) ? (ctxNow.day+6)%7 : ctxNow.day;   // gece yarısından sonra: önceki günün akşamı
+    const today=berlinNow().day;
+    const lbl = ctxNow.min<6*60 && !v.always ? DAY_NAMES[showDay]+" gecesi" : showDay===today ? "Bugün" : showDay===(today+1)%7 ? "Yarın" : DAY_NAMES[showDay];
+    const line=el("div","hoursline"); line.appendChild(el("span","label",lbl)); line.appendChild(el("span","mono",daySpansText(v,showDay))); body.appendChild(line);
+    const det=el("details","week"); det.appendChild(el("summary",null,"Haftalık saatler"));
+    const tb=el("div","weekgrid");
+    for(let d=0;d<7;d++){ const a=el("span",d===showDay?"cur":null,DAY_SHORT[d]); const b=el("span","mono"+(d===showDay?" cur":""),daySpansText(v,d)); tb.append(a,b); }
+    det.appendChild(tb);
+    if(v.src==="osm") det.appendChild(el("p","fine","Saatler OpenStreetMap'ten; eski olabilir. Emin olmak için Google Maps'e bak."));
+    body.appendChild(det);
+  }
   if(v.t) body.appendChild(el("p","note",v.t));
   const foot=el("div","footrow");
   const a=el("a","gmaps","Google Maps'te aç ↗"); a.href=mapsUrl(v); a.target="_blank"; a.rel="noopener";
@@ -480,7 +507,7 @@ function endState(){
   const btns=[];
   if(state.cfg.radius<6) btns.push(["Mesafeyi artır",()=>{state.cfg.radius=Math.min(6,state.cfg.radius+1.5);saveCfg();rebuild();},true]);
   if(state.cfg.openOnly) btns.push(["Kapalıları da göster",()=>{state.cfg.openOnly=false;saveCfg();rebuild();}]);
-  if(state.cfg.hour==="now") btns.push(["20:00 için bak",()=>{state.cfg.hour="20";saveCfg();rebuild();}]);
+  if(state.cfg.hour==="now") btns.push(["Bu akşam 20:00",()=>{state.cfg.hour="20";saveCfg();rebuild();}]);
   if(any) btns.push(["Baştan",()=>{state.pos=0;state.history=[];render();}]);
   return emptyBox(any?"Hepsini gördün":"Bu filtreyle yer yok", any?"Beğendiklerin favorilerde. Çemberi büyütebilir ya da baştan alabilirsin.":"Mesafeyi büyüt ya da saati değiştir.",btns);
 }
@@ -507,7 +534,7 @@ function renderSummary(){
     if("geolocation" in navigator) s.appendChild(pillBtn(gps.asking?"Konum alınıyor…":"Konumumu kullan",useMyLocation));
   }
   s.appendChild(el("span","pill mono",String(e.radius).replace(".",",")+" km"));
-  s.appendChild(el("span","pill",(e.openOnly?(e.hour==="now"?"Şimdi açık":timeCtx(e.hour).label+" açık"):"Tüm saatler")));
+  { const t=timeCtx(e.hour,e.day); s.appendChild(el("span","pill",(e.openOnly?(t.label==="Şimdi"?"Şimdi açık":t.label+" açık"):(t.today?"Tüm saatler":t.label)))); }
   s.appendChild(el("span","pill"+(useLive()?" live":""), useLive()?(live.source==="osm"?"Canlı · OSM":"Canlı · Google"):"Örnek veri"));
 }
 
@@ -516,7 +543,7 @@ function attachDrag(card){
   let start=null;
   const stamps={like:card.querySelector(".stamp.like"),pass:card.querySelector(".stamp.pass"),super:card.querySelector(".stamp.super")};
   card.addEventListener("pointerdown",e=>{
-    if(e.target.closest("a,button")||state.busy) return;
+    if(e.target.closest("a,button,summary,details")||state.busy) return;
     start={x:e.clientX,y:e.clientY,id:e.pointerId,dx:0,dy:0};
     card.setPointerCapture(e.pointerId); card.classList.add("dragging");
   });
@@ -625,7 +652,7 @@ function renderFavs(){
 /* ================= gece akışı ================= */
 function startFlow(id){
   if(state.group) endGroup(true);
-  state.flow={stops:[id],hour:bumpHour(state.cfg.hour)};
+  state.flow={stops:[id],hour:bumpHour(state.cfg.day&&state.cfg.day!=="today"&&state.cfg.hour==="now"?"20":state.cfg.hour),day:state.cfg.day||"today"};
   rebuild();
   toast(BY_ID[id].n+" sonrası için yakın barlar");
 }
@@ -672,8 +699,12 @@ function fillFilter(){
   const o=$("#fOrigin"); o.textContent="";
   Object.entries(ORIGINS).forEach(([k,v])=>{ if(v.gps && !("geolocation" in navigator)) return; const op=el("option",null,v.gps?"Konumum (GPS)":v.label); op.value=k; o.appendChild(op);}); o.value=draft.origin;
   $("#fRadius").value=draft.radius; $("#radiusOut").textContent=String(draft.radius).replace(".",",")+" km";
-  const hs=$("#fHour"); hs.textContent="";
-  HOURS.forEach(h=>{const op=el("option",null,h==="now"?"Şimdi":fmt(Number(h)*60)); op.value=h; hs.appendChild(op);}); hs.value=draft.hour;
+  if(!draft.day) draft.day="today";
+  const ds=$("#fDay"); ds.textContent="";
+  const today=berlinNow().day;
+  [["today","Bugün"],["tomorrow","Yarın"]].concat([2,3,4,5,6].map(k=>{const d=(today+k)%7; return [String(d),DAY_NAMES[d]];})).forEach(([v,l])=>{const op=el("option",null,l); op.value=v; ds.appendChild(op);});
+  ds.value=draft.day; if(ds.value!==draft.day){ draft.day="today"; ds.value="today"; }
+  fillHours();
   $("#fOpen").checked=draft.openOnly;
   chipSet("#fCats",Object.entries(CATS).filter(([k,v])=>!(useLive()&&live.source==="google")||v.types).map(([k,v])=>[k,v.label]),draft.cats);
   chipSet("#fPrice",[[1,"€"],[2,"€€"],[3,"€€€"],[4,"€€€€"]],draft.prices);
@@ -694,6 +725,12 @@ function chipSet(sel,opts,arr){
 $("#fRadius").addEventListener("input",e=>{draft.radius=Number(e.target.value); $("#radiusOut").textContent=String(draft.radius).replace(".",",")+" km";});
 $("#fOrigin").addEventListener("change",e=>draft.origin=e.target.value);
 $("#fHour").addEventListener("change",e=>draft.hour=e.target.value);
+$("#fDay").addEventListener("change",e=>{ draft.day=e.target.value; if(draft.day!=="today" && draft.hour==="now") draft.hour="20"; fillHours(); });
+function fillHours(){
+  const hs=$("#fHour"); hs.textContent="";
+  HOURS.filter(h=>h!=="now"||draft.day==="today").forEach(h=>{const n=Number(h); const op=el("option",null,h==="now"?"Şimdi":fmt(n*60)+(h!=="now"&&n<6?" (gece)":"")); op.value=h; hs.appendChild(op);});
+  hs.value=draft.hour; if(hs.value!==draft.hour){ draft.hour = draft.day==="today"?"now":"20"; hs.value=draft.hour; }
+}
 $("#fOpen").addEventListener("change",e=>draft.openOnly=e.target.checked);
 $("#applyFilter").onclick=async()=>{
   const wantsGps = draft.origin==="gps" && !gps.pos;

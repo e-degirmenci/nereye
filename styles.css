@@ -163,3 +163,12 @@ body{margin:0}
 .spinner{width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.spinner{animation-duration:3s}}
+.body{overflow-y:auto;overscroll-behavior:contain}
+.hoursline{display:flex;align-items:baseline;gap:8px;font-size:13.5px}
+.hoursline .label{font-size:11px}
+details.week{font-size:13px}
+details.week summary{cursor:pointer;color:var(--accent);font-weight:600;list-style-position:inside}
+.weekgrid{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin-top:6px}
+.weekgrid .cur{font-weight:700;color:var(--ink)}
+.weekgrid span{color:var(--muted)}
+details.week .fine{margin-top:6px}
