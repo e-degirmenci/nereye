@@ -233,36 +233,71 @@ function osmToVenue(e){
   if(t["diet:vegan"]==="yes"||t["diet:vegan"]==="only") extras.push("Vegan seçenek");
   if(t.wheelchair==="yes") extras.push("Tekerlekli sandalyeye uygun");
   return {
-    id:"o_"+e.type[0]+e.id, live:true, src:"osm",
+    id:"o_"+e.type[0]+e.id, live:true, src:"osm", am,
     n:t.name, c, k:kind, a:street || t["addr:suburb"] || "",
     p:0, lat, lon, rating:null, ratingCount:0,
     rules:h?h.rules:null, always:!!(h&&h.always),
     url:null, t:extras.join(" · ")
   };
 }
+/* Münih için hazır veri seti (GitHub'da haftada bir otomatik güncellenir) */
+const REGION = { data:null, loading:null, generated:null };
+function loadRegion(){
+  if(REGION.loading) return REGION.loading;
+  REGION.loading = fetch("data/munich.json",{cache:"no-cache"}).then(r=>{ if(!r.ok) throw new Error("veri seti yok"); return r.json(); })
+    .then(d=>{
+      const vs=[];
+      (d.elements||[]).forEach(([key,lat,lon,tags])=>{ const v=osmToVenue({type:key[0]==="n"?"node":key[0]==="w"?"way":"relation",id:key.slice(1),lat,lon,tags}); if(v){ BY_ID[v.id]=v; vs.push(v); } });
+      REGION.data={bbox:d.bbox,venues:vs}; REGION.generated=d.generated; return REGION.data;
+    }).catch(()=>{ REGION.data=null; return null; });
+  return REGION.loading;
+}
+function insideBox(o,rKm,b){
+  const dLat=rKm/111, dLon=rKm/(111*Math.cos(rad(o.lat)));
+  return o.lat-dLat>=b[0] && o.lon-dLon>=b[1] && o.lat+dLat<=b[2] && o.lon+dLon<=b[3];
+}
+/* Canlı Overpass: iki sunucuya kademeli istek, ilk gelen kazanır; sonuç 1 gün telefonda saklanır */
 async function overpass(query){
-  let lastErr;
-  for(const url of OVERPASS){
-    try{
-      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),25000);
-      const r=await fetch(url,{method:"POST",body:"data="+encodeURIComponent(query),headers:{"Content-Type":"application/x-www-form-urlencoded"},signal:ctrl.signal});
-      clearTimeout(timer);
-      if(r.ok) return await r.json();
-      lastErr=new Error("OpenStreetMap şu an yoğun (HTTP "+r.status+").");
-    }catch(err){ lastErr=new Error("OpenStreetMap'e ulaşılamadı."); }
-  }
-  throw lastErr;
+  const ctrls=[];
+  const attempt=(url,delay)=>new Promise((resolve,reject)=>{
+    setTimeout(async()=>{
+      const ctrl=new AbortController(); ctrls.push(ctrl);
+      try{
+        const r=await fetch(url,{method:"POST",body:"data="+encodeURIComponent(query),headers:{"Content-Type":"application/x-www-form-urlencoded"},signal:ctrl.signal});
+        if(!r.ok) throw new Error("HTTP "+r.status);
+        resolve(await r.json());
+      }catch(err){ reject(err); }
+    },delay);
+  });
+  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),70000));
+  try{
+    return await Promise.race([Promise.any(OVERPASS.map((u,i)=>attempt(u,i*6000))), timeout]);
+  }catch(err){
+    throw new Error("OpenStreetMap şu an çok yavaş ya da ulaşılamıyor. Biraz sonra tekrar dene.");
+  }finally{ ctrls.forEach(c=>{ try{c.abort();}catch(e){} }); }
 }
 async function fetchOSM(origin, radiusKm, cats){
   const amenities=[...new Set(cats.flatMap(c=>OSM_AMENITY[c]||[]))];
   if(!amenities.length) return [];
+  const region=await loadRegion();
+  if(region && insideBox(origin,Math.min(6,radiusKm),region.bbox)){
+    const set=new Set(amenities);
+    return region.venues.filter(v=>set.has(v.am)).map(v=>v.id);
+  }
   const r=Math.round(Math.min(6,radiusKm)*1000);
-  const key=["osm",origin.lat.toFixed(3),origin.lon.toFixed(3),r,amenities.sort().join(",")].join("|");
+  const key=["osm",origin.lat.toFixed(2),origin.lon.toFixed(2),r,amenities.sort().join(",")].join("|");
   if(live.cache.has(key)) return live.cache.get(key);
-  const q=`[out:json][timeout:25];nwr["amenity"~"^(${amenities.join("|")})$"]["name"](around:${r},${origin.lat.toFixed(5)},${origin.lon.toFixed(5)});out center tags 2000;`;
-  const data=await overpass(q);
+  const stored=store.get("nereye.osm."+key,null);
+  let elements;
+  if(stored && Date.now()-stored.t<24*3600*1000) elements=stored.e;
+  else{
+    const q=`[out:json][timeout:60];nwr["amenity"~"^(${amenities.join("|")})$"]["name"](around:${r},${origin.lat.toFixed(4)},${origin.lon.toFixed(4)});out center tags 1500;`;
+    const data=await overpass(q);
+    elements=(data.elements||[]).map(e=>({type:e.type,id:e.id,lat:e.lat!=null?e.lat:e.center&&e.center.lat,lon:e.lon!=null?e.lon:e.center&&e.center.lon,tags:e.tags}));
+    store.set("nereye.osm."+key,{t:Date.now(),e:elements});
+  }
   const ids=[];
-  (data.elements||[]).forEach(e=>{ const v=osmToVenue(e); if(v){ BY_ID[v.id]=v; ids.push(v.id); } });
+  elements.forEach(e=>{ const v=osmToVenue(e); if(v){ BY_ID[v.id]=v; ids.push(v.id); } });
   live.cache.set(key,ids);
   return ids;
 }
@@ -626,7 +661,7 @@ function fillFilter(){
   chipSet("#fPrice",[[1,"€"],[2,"€€"],[3,"€€€"],[4,"€€€€"]],draft.prices);
   $("#dataNote").textContent = useLive()
     ? (live.source==="osm"
-        ? "Canlı veri: mekanlar ve açılış saatleri OpenStreetMap'ten geliyor (ücretsiz, anahtarsız). Fiyat ve puan bilgisi yok; puan için karttaki Google Maps linkine bak. Saati girilmemiş mekanlar \"sadece açık\" filtresinde gizlenir."
+        ? "Canlı veri: mekanlar ve açılış saatleri OpenStreetMap'ten geliyor (ücretsiz, anahtarsız). Fiyat ve puan bilgisi yok; puan için karttaki Google Maps linkine bak. Saati girilmemiş mekanlar \"sadece açık\" filtresinde gizlenir."+(REGION.generated?" Münih verisi: "+REGION.generated+".":"")
         : "Canlı veri: mekanlar, puanlar ve saatler Google Maps'ten geliyor.")
     : (live.failed ? live.failed+" Şu an örnek veri kullanılıyor." : "Örnek veri: Münih'teki gerçek mekanlar, açılış saatleri tahmini.");
 }

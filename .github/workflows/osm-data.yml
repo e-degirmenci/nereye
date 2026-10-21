@@ -1,0 +1,51 @@
+name: Münih mekan verisini güncelle
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # her pazartesi 03:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/osm-data.yml"
+      - "scripts/build_osm.py"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: osm-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OpenStreetMap'ten Münih mekanlarını indir
+        run: |
+          QUERY='[out:json][timeout:180];nwr["amenity"~"^(restaurant|fast_food|bar|pub|biergarten|cafe)$"]["name"](48.06,11.36,48.25,11.72);out center tags;'
+          for url in https://overpass-api.de/api/interpreter https://overpass.private.coffee/api/interpreter https://overpass-api.de/api/interpreter; do
+            echo "Deneniyor: $url"
+            if curl -sS --fail --max-time 300 -A "nereye-app (github.com/e-degirmenci/nereye)" \
+                 --data-urlencode "data=$QUERY" "$url" -o overpass.json; then
+              if python -c "import json;d=json.load(open('overpass.json'));assert len(d['elements'])>500"; then
+                echo "Tamam"; exit 0
+              fi
+            fi
+            sleep 30
+          done
+          echo "Overpass'tan veri alınamadı"; exit 1
+
+      - name: Uygulama formatına çevir
+        run: python scripts/build_osm.py overpass.json data/munich.json
+
+      - name: Değiştiyse kaydet
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/munich.json
+          if git diff --cached --quiet; then echo "Değişiklik yok"; exit 0; fi
+          git commit -m "Münih mekan verisi güncellendi ($(date -u +%Y-%m-%d))"
+          git push
