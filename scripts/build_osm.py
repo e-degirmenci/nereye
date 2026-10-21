@@ -3,7 +3,7 @@
 Kullanım: python scripts/build_osm.py overpass.json data/munich.json
 Veri: © OpenStreetMap katkıcıları, ODbL.
 """
-import json, sys, datetime
+import json, os, sys, datetime
 
 KEEP = ["name", "amenity", "cuisine", "opening_hours", "addr:street", "addr:housenumber",
         "addr:suburb", "diet:vegan", "outdoor_seating", "wheelchair"]
@@ -33,6 +33,7 @@ def main(src, dst):
         "bbox": [48.06, 11.36, 48.25, 11.72],
         "elements": out,
     }
+    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
     with open(dst, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"{len(out)} mekan yazıldı -> {dst}")
