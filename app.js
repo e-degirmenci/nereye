@@ -12,11 +12,40 @@ const ORIGINS = {
   hbf:{label:"Hauptbahnhof",lat:48.1402,lon:11.5600}
 };
 const CATS = {
-  food:{label:"Yemek",color:"--cat-food",types:["restaurant"]},
+  restaurant:{label:"Restoran",color:"--cat-food",types:["restaurant"]},
   bar:{label:"Bar",color:"--cat-bar",types:["bar","pub","wine_bar"]},
-  beer:{label:"Biergarten",color:"--cat-beer",types:null},       // Google'da ayrı tür yok; canlı modda gizlenir
-  cafe:{label:"Kafe",color:"--cat-cafe",types:["cafe","coffee_shop"]}
+  cafe:{label:"Kafe",color:"--cat-cafe",types:["cafe","coffee_shop"]},
+  beer:{label:"Biergarten",color:"--cat-beer",types:null},       // Google'da ayrı tür yok; Google modunda gizlenir
+  fast:{label:"Hızlı yemek",color:"--cat-fast",types:null}
 };
+const ALL_CATS = Object.keys(CATS);
+const isMeal = c => c==="restaurant"||c==="fast"||c==="cafe";
+const isFood = c => c==="restaurant"||c==="fast";
+// Mutfak grupları: OSM "cuisine" değerleri -> uygulamadaki seçenek
+const CUISINE_GROUPS = [
+  ["turk","Türk & döner",["turkish","kebab","doner","döner","lahmacun","pide","kumpir"]],
+  ["italyan","İtalyan & pizza",["italian","pizza","pasta","italian_pizza"]],
+  ["burger","Burger",["burger","american","hot_dog","diner"]],
+  ["asya","Asya",["asian","chinese","thai","vietnamese","korean","noodle","dumplings","pan_asian","indonesian","malaysian","filipino","taiwanese","mongolian"]],
+  ["japon","Japon & sushi",["japanese","sushi","ramen","poke"]],
+  ["hint","Hint",["indian","nepalese","pakistani","sri_lankan","bangladeshi","tibetan"]],
+  ["akdeniz","Akdeniz & Orta Doğu",["greek","mediterranean","lebanese","falafel","middle_eastern","syrian","persian","arab","israeli","oriental","afghan","kurdish"]],
+  ["bavyera","Bavyera & Alman",["bavarian","german","regional","austrian"]],
+  ["meksika","Meksika & Latin",["mexican","tex-mex","burrito","latin_american","peruvian","argentinian","brazilian","colombian","tacos"]],
+  ["vegan","Vegan & vejetaryen",["vegan","vegetarian"]],
+  ["kahvalti","Kahvaltı & brunch",["breakfast","brunch"]],
+  ["tavuk","Tavuk",["chicken","fried_chicken","wings"]],
+  ["sandvic","Sandviç & bowl",["sandwich","bagel","bowl","salad","wrap","sandwiches"]],
+  ["deniz","Balık & deniz",["fish","seafood","fish_and_chips"]],
+  ["steak","Steak & et",["steak_house","grill","barbecue","bbq"]]
+];
+const CUISINE_LABEL = Object.fromEntries(CUISINE_GROUPS.map(([k,l])=>[k,l]));
+function cuisineGroups(cuisines, veg){
+  const out=new Set();
+  cuisines.forEach(c=>CUISINE_GROUPS.forEach(([k,,vals])=>{ if(vals.includes(c)) out.add(k); }));
+  if(veg) out.add("vegan");
+  return [...out];
+}
 const GROUP_SIZE = 12;
 const HOURS = ["now","8","12","15","18","20","22","0","2"];
 const CONFIG = window.NEREYE_CONFIG || {};
@@ -83,7 +112,12 @@ function mapsUrl(v){return v.url || "https://www.google.com/maps/search/?api=1&q
 
 /* ================= mekan deposu ================= */
 const BY_ID = {};
-(window.NEREYE_SAMPLE||[]).forEach(v=>{ v.rules=rulesFromSample(v.h); BY_ID[v.id]=v; });
+const SAMPLE_CG={"Bavyera":"bavyera","İtalyan":"italyan","Vegan":"vegan","Asya":"asya","Japon":"japon","Izgara":"steak"};
+(window.NEREYE_SAMPLE||[]).forEach(v=>{
+  v.rules=rulesFromSample(v.h); if(v.c==="food") v.c="restaurant";
+  v.cg=Object.entries(SAMPLE_CG).filter(([w])=>v.k.includes(w)).map(([,g])=>g);
+  BY_ID[v.id]=v;
+});
 const SAMPLE_IDS = Object.keys(BY_ID);
 
 /* ================= Google (canlı veri) ================= */
@@ -105,7 +139,7 @@ function categoryOf(types){
   types=types||[];
   if(types.some(t=>["bar","pub","wine_bar","night_club","cocktail_bar"].includes(t))) return "bar";
   if(types.some(t=>["cafe","coffee_shop","bakery","tea_house"].includes(t)) && !types.includes("restaurant")) return "cafe";
-  return "food";
+  return "restaurant";
 }
 function rulesFromPeriods(periods){
   const rules=[]; let always=false;
@@ -167,7 +201,7 @@ async function fetchGoogle(origin, radiusKm, cats){
 }
 /* ================= OpenStreetMap (canlı, ücretsiz, anahtarsız) ================= */
 const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.private.coffee/api/interpreter"];
-const OSM_AMENITY = { food:["restaurant","fast_food"], bar:["bar","pub"], beer:["biergarten"], cafe:["cafe"] };
+const OSM_AMENITY = { restaurant:["restaurant"], fast:["fast_food"], bar:["bar","pub"], beer:["biergarten"], cafe:["cafe"] };
 const CUISINE_TR = {
   italian:"İtalyan", pizza:"Pizza", burger:"Burger", german:"Alman", bavarian:"Bavyera", regional:"Yöresel",
   turkish:"Türk", kebab:"Döner · kebap", asian:"Asya", japanese:"Japon", sushi:"Sushi", ramen:"Ramen",
@@ -253,7 +287,7 @@ function osmToVenue(e){
   const lat=e.lat!=null?e.lat:(e.center&&e.center.lat), lon=e.lon!=null?e.lon:(e.center&&e.center.lon);
   if(lat==null||lon==null||!t.name) return null;
   const am=t.amenity;
-  const c= am==="biergarten" ? "beer" : (am==="bar"||am==="pub") ? "bar" : am==="cafe" ? "cafe" : "food";
+  const c= am==="biergarten" ? "beer" : (am==="bar"||am==="pub") ? "bar" : am==="cafe" ? "cafe" : am==="fast_food" ? "fast" : "restaurant";
   const cuisines=(t.cuisine||"").split(";").map(x=>x.trim().toLowerCase()).filter(Boolean);
   let kind=cuisines.map(x=>CUISINE_TR[x]).filter(Boolean).slice(0,2).join(" · ");
   if(!kind && (t["diet:vegan"]==="only")) kind="Vegan";
@@ -269,6 +303,7 @@ function osmToVenue(e){
     n:t.name, c, k:kind, a:street || t["addr:suburb"] || "",
     p:0, lat, lon, rating:null, ratingCount:0,
     rules:h?h.rules:null, always:!!(h&&h.always),
+    cg:cuisineGroups(cuisines, ["yes","only"].includes(t["diet:vegan"])||["yes","only"].includes(t["diet:vegetarian"])),
     checked:(t["check_date:opening_hours"]||t.check_date||t["survey:date"]||"").slice(0,7)||null,
     url:null, t:extras.join(" · ")
   };
@@ -390,12 +425,17 @@ async function useMyLocation(){
 
 /* ================= durum ================= */
 const state = {
-  cfg: Object.assign({origin:"marienplatz",radius:2,cats:["food","bar","beer","cafe"],prices:[1,2,3,4],openOnly:true,hour:"now"}, store.get("nereye.cfg",{})),
+  cfg: Object.assign({origin:"marienplatz",radius:2,cats:ALL_CATS.slice(),cuisines:[],prices:[1,2,3,4],openOnly:true,hour:"now"}, store.get("nereye.cfg",{})),
   deck:[], pos:0, history:[], dist:{}, ctx:null, loading:false, error:null,
   favs: store.get("nereye.favs",{}),
   flow:null, group:null, busy:false, buildSeq:0
 };
 if(!ORIGINS[state.cfg.origin]) state.cfg.origin="marienplatz";
+// eski "food" kategorisini yeni restoran + hızlı yemek ayrımına taşı
+state.cfg.cats=[...new Set((state.cfg.cats||[]).flatMap(c=>c==="food"?["restaurant","fast"]:[c]).filter(c=>CATS[c]))];
+if(!state.cfg.cats.length) state.cfg.cats=ALL_CATS.slice();
+if(!Array.isArray(state.cfg.cuisines)) state.cfg.cuisines=[];
+state.cfg.cuisines=state.cfg.cuisines.filter(k=>CUISINE_LABEL[k]);
 
 function originPoint(){
   const o=ORIGINS[state.cfg.origin];
@@ -410,10 +450,10 @@ function effective(){
     return {origin:{label:last.n,lat:last.lat,lon:last.lon},radius:1.2,cats:activeCats(["bar","beer"]),prices:c.prices,openOnly:true,hour:state.flow.hour,day:state.flow.day};
   }
   const cats=activeCats(c.cats);
-  return {origin:originPoint(),radius:c.radius,cats:cats.length?cats:["food"],prices:c.prices,openOnly:c.openOnly,hour:c.hour,day:c.day||"today"};
+  return {origin:originPoint(),radius:c.radius,cats:cats.length?cats:["restaurant"],cuisines:c.cuisines||[],prices:c.prices,openOnly:c.openOnly,hour:c.hour,day:c.day||"today"};
 }
 async function buildDeck(e){
-  const ctx=timeCtx(e.hour,e.day), dist={};
+  const ctx=timeCtx(e.hour,e.day), dist={}, counts={};
   const exclude = state.flow? new Set(state.flow.stops):new Set();
   const pool = useLive() ? await fetchLive(e.origin,e.radius,e.cats) : SAMPLE_IDS;
   const ids=pool.filter(id=>{
@@ -421,11 +461,14 @@ async function buildDeck(e){
     const d=distKm(e.origin,v); dist[id]=d;
     if(d>e.radius*1.05) return false;
     if(!e.cats.includes(v.c)) return false;
+
     if(v.p && !e.prices.includes(v.p)) return false;
     if(e.openOnly && openInfo(v,ctx).open!==true) return false;
+    if(isFood(v.c) && v.cg) v.cg.forEach(g=>counts[g]=(counts[g]||0)+1);
+    if(e.cuisines && e.cuisines.length && isFood(v.c) && !(v.cg||[]).some(g=>e.cuisines.includes(g))) return false;
     return true;
   }).sort((a,b)=>dist[a]-dist[b]);
-  return {ids,dist,ctx};
+  return {ids,dist,ctx,counts};
 }
 async function rebuild(){
   const seq=++state.buildSeq;
@@ -434,7 +477,7 @@ async function rebuild(){
   try{
     const b=await buildDeck(effective());
     if(seq!==state.buildSeq) return;
-    state.deck=b.ids; state.dist=b.dist; state.ctx=b.ctx;
+    state.deck=b.ids; state.dist=b.dist; state.ctx=b.ctx; state.counts=b.counts;
   }catch(err){
     if(seq!==state.buildSeq) return;
     console.error(err);
@@ -447,7 +490,8 @@ function distFor(id){ return state.dist[id]!=null ? state.dist[id] : distKm(effe
 
 /* ================= çizim ================= */
 const GLYPHS={
- food:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8v18a6 6 0 0 0 12 0V8M26 8v48"/><path d="M44 56V8c-6 4-8 12-8 22h8"/></svg>',
+ restaurant:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8v18a6 6 0 0 0 12 0V8M26 8v48"/><path d="M44 56V8c-6 4-8 12-8 22h8"/></svg>',
+ fast:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 28c0-11 10-18 22-18s22 7 22 18z"/><path d="M8 36h48"/><path d="M10 44h44v2a8 8 0 0 1-8 8H18a8 8 0 0 1-8-8z"/><circle cx="24" cy="20" r="1.6" fill="currentColor"/><circle cx="34" cy="17" r="1.6" fill="currentColor"/><circle cx="41" cy="22" r="1.6" fill="currentColor"/></svg>',
  bar:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10h44L32 34z"/><path d="M32 34v20M20 56h24M44 4l-6 14"/><circle cx="20" cy="16" r="2.5" fill="currentColor"/></svg>',
  beer:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 20h28v34a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4z"/><path d="M42 26h6a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6h-6"/><path d="M12 20c0-6 5-10 10-9 2-4 8-5 11-2 4-2 10 1 10 7v4"/><path d="M22 30v20M30 30v20"/></svg>',
  cafe:'<svg class="glyph" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 26h34v12a14 14 0 0 1-14 14h-6a14 14 0 0 1-14-14z"/><path d="M46 30h4a6 6 0 0 1 0 12h-5"/><path d="M8 58h44M22 6c-3 4 3 6 0 12M32 6c-3 4 3 6 0 12"/></svg>'
@@ -545,8 +589,48 @@ function endState(){
   if(any) btns.push(["Baştan",()=>{state.pos=0;state.history=[];render();}]);
   return emptyBox(any?"Hepsini gördün":"Bu filtreyle yer yok", any?"Beğendiklerin favorilerde. Çemberi büyütebilir ya da baştan alabilirsin.":"Mesafeyi büyüt ya da saati değiştir.",btns);
 }
+function renderQuick(){
+  const q=$("#quick"); q.textContent="";
+  if(state.group||state.flow){ q.hidden=true; return; }
+  q.hidden=false;
+  const cats=state.cfg.cats, all=cats.length===ALL_CATS.length;
+  const visible=ALL_CATS.filter(c=>!(useLive()&&live.source==="google")||CATS[c].types);
+  const row=el("div","qrow"); row.setAttribute("role","group"); row.setAttribute("aria-label","Mekan türü");
+  const mk=(label,pressed,fn,cls)=>{ const b=el("button","qchip"+(cls?" "+cls:""),label); b.type="button"; b.setAttribute("aria-pressed",pressed); b.onclick=fn; return b; };
+  row.appendChild(mk("Hepsi",all,()=>{ state.cfg.cats=ALL_CATS.slice(); state.cfg.cuisines=[]; saveCfg(); rebuild(); }));
+  visible.forEach(c=>{
+    const b=mk(CATS[c].label,!all&&cats.includes(c),()=>{
+      if(!all && cats.length===1 && cats[0]===c) state.cfg.cats=ALL_CATS.slice();
+      else state.cfg.cats=[c];
+      if(!state.cfg.cats.some(isFood)) state.cfg.cuisines=[];
+      saveCfg(); rebuild();
+    });
+    b.style.setProperty("--qc","var("+CATS[c].color+")");
+    row.appendChild(b);
+  });
+  q.appendChild(row);
+  // Mutfak: sadece restoran / hızlı yemek seçiliyken
+  if(!all && cats.some(isFood)){
+    const counts=state.counts||{}, sel=state.cfg.cuisines;
+    const groups=CUISINE_GROUPS.filter(([k])=>counts[k]||sel.includes(k));
+    if(groups.length){
+      const r2=el("div","qrow sub"); r2.setAttribute("role","group"); r2.setAttribute("aria-label","Mutfak");
+      r2.appendChild(mk("Tüm mutfaklar",!sel.length,()=>{ state.cfg.cuisines=[]; saveCfg(); rebuild(); }));
+      groups.sort((a,b)=>(sel.includes(b[0])-sel.includes(a[0])) || (counts[b[0]]||0)-(counts[a[0]]||0)).forEach(([k,label])=>{
+        const on=sel.includes(k);
+        const b=mk(label+" "+(counts[k]||0),on,()=>{
+          const i=sel.indexOf(k); if(i>=0) sel.splice(i,1); else sel.push(k);
+          saveCfg(); rebuild();
+        },"cuisine");
+        r2.appendChild(b);
+      });
+      q.appendChild(r2);
+    }
+  }
+}
 function pillBtn(label,fn,cls){ const p=el("span","pill"+(cls?" "+cls:"")); const b=el("button",null,label); b.onclick=fn; p.appendChild(b); return p; }
 function renderSummary(){
+  renderQuick();
   const s=$("#summary"); s.textContent="";
   const g=state.group;
   if(g){
@@ -677,7 +761,7 @@ function renderFavs(){
     it.appendChild(s);
     const acts=el("div","acts");
     const a=el("a","linkbtn","Google Maps ↗"); a.href=mapsUrl(v); a.target="_blank"; a.rel="noopener"; acts.appendChild(a);
-    if(!v.stale && (v.c==="food"||v.c==="cafe")){ const f=el("button","linkbtn","Sonra nereye? Bar seç"); f.onclick=()=>{closeSheet("sheetFavs"); startFlow(id);}; acts.appendChild(f); }
+    if(!v.stale && isMeal(v.c)){ const f=el("button","linkbtn","Sonra nereye? Bar seç"); f.onclick=()=>{closeSheet("sheetFavs"); startFlow(id);}; acts.appendChild(f); }
     const r=el("button","linkbtn danger","Çıkar"); r.onclick=()=>{delete state.favs[id]; saveFavs(); renderFavs(); render();}; acts.appendChild(r);
     it.appendChild(acts); list.appendChild(it);
   });
@@ -839,7 +923,7 @@ function renderResults(){
     it.appendChild(s);
     const acts=el("div","acts");
     const a=el("a","linkbtn","Google Maps ↗"); a.href=mapsUrl(v); a.target="_blank"; a.rel="noopener"; acts.appendChild(a);
-    if(v.c==="food"||v.c==="cafe"){ const f=el("button","linkbtn","Sonra nereye? Bar seç"); f.onclick=()=>{ closeSheet("sheetResults"); startFlow(id); }; acts.appendChild(f); }
+    if(isMeal(v.c)){ const f=el("button","linkbtn","Sonra nereye? Bar seç"); f.onclick=()=>{ closeSheet("sheetResults"); startFlow(id); }; acts.appendChild(f); }
     it.appendChild(acts); list.appendChild(it);
   });
 }

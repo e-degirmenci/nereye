@@ -3,7 +3,7 @@
   --bg:#EDF0F4; --surface:#FFFFFF; --ink:#13203A; --muted:#5B6578; --line:#D5DAE3;
   --accent:#1C64C8; --accent-ink:#FFFFFF; --soft:#E2E8F2;
   --like:#18865A; --pass:#C2412D; --star:#C08A12;
-  --cat-food:#C9512F; --cat-bar:#5B3E96; --cat-beer:#2E7A4B; --cat-cafe:#9A6A1C;
+  --cat-food:#C9512F; --cat-bar:#5B3E96; --cat-beer:#2E7A4B; --cat-cafe:#9A6A1C; --cat-fast:#A8366A;
   --open:#18865A; --closed:#8A93A3;
   --shadow:0 10px 30px rgba(19,32,58,.14);
   --f-display:"Archivo","Helvetica Neue",Arial,sans-serif;
@@ -14,7 +14,7 @@
   --bg:#0F1522; --surface:#18202F; --ink:#E6EBF4; --muted:#98A2B5; --line:#2B3547;
   --accent:#5B9BF0; --accent-ink:#0B1220; --soft:#222C3E;
   --like:#3DBA84; --pass:#E8705B; --star:#E3B23C;
-  --cat-food:#B4492A; --cat-bar:#5A43A0; --cat-beer:#2B6E45; --cat-cafe:#8C6118;
+  --cat-food:#B4492A; --cat-bar:#5A43A0; --cat-beer:#2B6E45; --cat-cafe:#8C6118; --cat-fast:#9A3463;
   --open:#3DBA84; --closed:#6E7889;
   --shadow:0 10px 30px rgba(0,0,0,.45);
   color-scheme:dark;
@@ -23,7 +23,7 @@
   --bg:#0F1522; --surface:#18202F; --ink:#E6EBF4; --muted:#98A2B5; --line:#2B3547;
   --accent:#5B9BF0; --accent-ink:#0B1220; --soft:#222C3E;
   --like:#3DBA84; --pass:#E8705B; --star:#E3B23C;
-  --cat-food:#B4492A; --cat-bar:#5A43A0; --cat-beer:#2B6E45; --cat-cafe:#8C6118;
+  --cat-food:#B4492A; --cat-bar:#5A43A0; --cat-beer:#2B6E45; --cat-cafe:#8C6118; --cat-fast:#9A3463;
   --open:#3DBA84; --closed:#6E7889;
   --shadow:0 10px 30px rgba(0,0,0,.45);
   color-scheme:dark;
@@ -35,7 +35,7 @@ button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-.app{height:100%;display:grid;grid-template-rows:auto auto 1fr auto;max-width:480px;margin:0 auto;
+.app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr auto;max-width:480px;margin:0 auto;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 12px;gap:10px}
 
 header.top{display:flex;align-items:center;gap:8px}
@@ -172,3 +172,14 @@ details.week summary{cursor:pointer;color:var(--accent);font-weight:600;list-sty
 .weekgrid .cur{font-weight:700;color:var(--ink)}
 .weekgrid span{color:var(--muted)}
 details.week .fine{margin-top:6px}
+
+/* tür ve mutfak seçimi */
+.quick{display:flex;flex-direction:column;gap:6px;min-width:0}
+.qrow{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px;margin-right:calc(-1 * max(16px, env(safe-area-inset-right,0px)));padding-right:16px}
+.qrow::-webkit-scrollbar{display:none}
+.qchip{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:18px;padding:7px 13px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.qchip::before{content:"";width:8px;height:8px;border-radius:2px;transform:rotate(45deg);background:var(--qc,transparent);display:var(--qd,inline-block)}
+.qchip:not([style])::before{display:none}
+.qchip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.qrow.sub .qchip{font-size:13px;font-weight:500;padding:5px 11px;background:var(--soft);border-color:transparent}
+.qrow.sub .qchip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}

@@ -6,7 +6,7 @@ Veri: © OpenStreetMap katkıcıları, ODbL.
 import json, os, sys, datetime
 
 KEEP = ["name", "amenity", "cuisine", "opening_hours", "addr:street", "addr:housenumber",
-        "addr:suburb", "diet:vegan", "outdoor_seating", "wheelchair",
+        "addr:suburb", "diet:vegan", "diet:vegetarian", "outdoor_seating", "wheelchair",
         "check_date:opening_hours", "check_date", "survey:date"]
 
 def main(src, dst):
