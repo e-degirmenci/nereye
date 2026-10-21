@@ -1,0 +1,12 @@
+{
+  "name": "Nereye?",
+  "short_name": "Nereye",
+  "description": "Yakındaki mekanları swipe'layarak seç, arkadaşlarınla eşleş.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#EDF0F4",
+  "theme_color": "#1C64C8",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

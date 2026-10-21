@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nereye?</title>
+<meta name="description" content="Yakındaki mekanları swipe'layarak seç, arkadaşlarınla eşleş.">
+<meta name="theme-color" content="#1C64C8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">Nereye<span>?</span></div>
+    <button class="iconbtn" id="btnGroup" aria-label="Grup modu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.8-3.2 3.2-5 6-5s5.2 1.8 6 5"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.2c2.4.2 4.3 1.8 5 4.8"/></svg>Grup</button>
+    <button class="iconbtn" id="btnFavs" aria-label="Favoriler">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg><span class="count" id="favCount">0</span></button>
+  </header>
+
+  <div class="summary" id="summary"></div>
+
+  <main class="stage">
+    <div class="deck" id="deck" aria-live="polite"></div>
+  </main>
+
+  <nav class="actions" id="actions">
+    <button class="act small undo" id="aUndo" aria-label="Geri al" title="Geri al">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+    <button class="act big pass" id="aPass" aria-label="Geç" title="Geç (←)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="act mid star" id="aStar" aria-label="Süper beğen" title="Süper (↑)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg></button>
+    <button class="act big like" id="aLike" aria-label="Beğen" title="Beğen (→)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8-4.9-8-11.2A4.6 4.6 0 0 1 12 7a4.6 4.6 0 0 1 8 2.8C20 16.1 12 21 12 21z"/></svg></button>
+    <button class="act small undo" id="aFilter" aria-label="Filtreler" title="Filtreler">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg></button>
+  </nav>
+</div>
+
+<!-- Filtreler -->
+<div class="scrim" id="sheetFilter" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="hFilter">
+    <div class="sheethead"><h2 id="hFilter">Filtreler</h2><button class="btn small ghost" data-close>Kapat</button></div>
+    <div class="field"><label class="label" for="fOrigin">Başlangıç noktası</label>
+      <select id="fOrigin"></select></div>
+    <div class="field"><label class="label" for="fRadius">Mesafe · <span id="radiusOut" class="mono"></span></label>
+      <input type="range" id="fRadius" min="0.5" max="6" step="0.5"></div>
+    <div class="field"><span class="label">Ne arıyorsun?</span><div class="chips" id="fCats"></div></div>
+    <div class="field"><span class="label">Fiyat</span><div class="chips" id="fPrice"></div></div>
+    <div class="field"><label class="label" for="fHour">Saat</label><select id="fHour"></select></div>
+    <label class="toggle" for="fOpen">Sadece o saatte açık olanlar<input type="checkbox" id="fOpen"></label>
+    <button class="btn primary" id="applyFilter">Uygula</button>
+    <p class="fine" id="dataNote"></p>
+  </div>
+</div>
+
+<!-- Favoriler -->
+<div class="scrim" id="sheetFavs" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="hFavs">
+    <div class="sheethead"><h2 id="hFavs">Favoriler</h2><button class="btn small ghost" data-close>Kapat</button></div>
+    <div class="list" id="favList"></div>
+  </div>
+</div>
+
+<!-- Grup -->
+<div class="scrim" id="sheetGroup" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="hGroup">
+    <div class="sheethead"><h2 id="hGroup">Grupla seç</h2><button class="btn small ghost" data-close>Kapat</button></div>
+    <p class="fine" style="font-size:14px">Herkes aynı 12 mekanı sırayla swipe'lar, telefonu elden ele verirsiniz. Sonunda herkesin beğendiği yerler eşleşme olur.</p>
+    <div class="list" id="playerList"></div>
+    <div class="row" style="justify-content:flex-start"><button class="btn small" id="addPlayer">Kişi ekle</button></div>
+    <button class="btn primary" id="startLocal">Başlat</button>
+  </div>
+</div>
+
+<!-- Sonuçlar -->
+<div class="scrim" id="sheetResults" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="hResults">
+    <div class="sheethead"><h2 id="hResults">Sonuçlar</h2><button class="btn small ghost" data-close>Kapat</button></div>
+    <div class="people" id="peopleList"></div>
+    <div class="list" id="resultList"></div>
+    <button class="btn" id="endGroup">Grubu bitir</button>
+  </div>
+</div>
+
+<!-- Gece planı -->
+<div class="scrim" id="sheetPlan" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="hPlan">
+    <div class="sheethead"><h2 id="hPlan">Gecenin planı</h2><button class="btn small ghost" data-close>Kapat</button></div>
+    <div class="chain" id="planChain"></div>
+    <div class="row" style="justify-content:stretch"><button class="btn" id="planMore" style="flex:1">Bir durak daha</button><button class="btn primary" id="planDone" style="flex:1">Plan tamam</button></div>
+  </div>
+</div>
+
+<div class="handoff" id="handoff" hidden>
+  <p style="margin:0;font-weight:600;opacity:.85">Seçimler gizli kalsın</p>
+  <h2 id="handoffTitle">Sıra sende</h2>
+  <p style="margin:0;max-width:28ch" id="handoffSub"></p>
+  <button class="btn" id="handoffGo">Başla</button>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
