@@ -73,7 +73,7 @@ const BY_ID = {};
 const SAMPLE_IDS = Object.keys(BY_ID);
 
 /* ================= Google (canlı veri) ================= */
-const live = { enabled: !!API_KEY, ready:false, failed:null, cache:new Map(), lib:null };
+const live = { source: API_KEY ? "google" : "osm", ready:false, failed:null, cache:new Map(), lib:null };
 window.gm_authFailure = function(){ live.failed="Google anahtarı reddedildi (anahtar yanlış ya da bu site adresine izin verilmemiş)."; live.ready=false; rebuild(); };
 function loadGoogle(){
   if(live.loading) return live.loading;
@@ -131,7 +131,7 @@ function toVenue(p){
     rules, always, url:p.googleMapsURI||null, t:""
   };
 }
-async function fetchLive(origin, radiusKm, cats){
+async function fetchGoogle(origin, radiusKm, cats){
   await loadGoogle();
   const ids=new Set();
   for(const c of cats){
@@ -151,7 +151,126 @@ async function fetchLive(origin, radiusKm, cats){
   }
   return [...ids];
 }
-function useLive(){ return live.enabled && !live.failed; }
+/* ================= OpenStreetMap (canlı, ücretsiz, anahtarsız) ================= */
+const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.private.coffee/api/interpreter"];
+const OSM_AMENITY = { food:["restaurant","fast_food"], bar:["bar","pub"], beer:["biergarten"], cafe:["cafe"] };
+const CUISINE_TR = {
+  italian:"İtalyan", pizza:"Pizza", burger:"Burger", german:"Alman", bavarian:"Bavyera", regional:"Yöresel",
+  turkish:"Türk", kebab:"Döner · kebap", asian:"Asya", japanese:"Japon", sushi:"Sushi", ramen:"Ramen",
+  chinese:"Çin", korean:"Kore", thai:"Tayland", vietnamese:"Vietnam", indian:"Hint", nepalese:"Nepal",
+  mexican:"Meksika", greek:"Yunan", spanish:"İspanyol", french:"Fransız", lebanese:"Lübnan", syrian:"Suriye",
+  persian:"İran", arab:"Arap", american:"Amerikan", steak_house:"Steakhouse", seafood:"Deniz ürünleri",
+  fish:"Balık", vegan:"Vegan", vegetarian:"Vejetaryen", international:"Uluslararası", sandwich:"Sandviç",
+  bagel:"Bagel", falafel:"Falafel", chicken:"Tavuk", bakery:"Fırın", cake:"Pasta", ice_cream:"Dondurma",
+  coffee_shop:"Kahve", breakfast:"Kahvaltı", austrian:"Avusturya", african:"Afrika", ethiopian:"Etiyopya",
+  georgian:"Gürcü", russian:"Rus", portuguese:"Portekiz", peruvian:"Peru", hawaiian:"Hawaii", poke:"Poke",
+  noodle:"Erişte", dumplings:"Mantı · dumpling", tapas:"Tapas", wine:"Şarap", beer:"Bira", cocktail:"Kokteyl"
+};
+const AMENITY_TR = { restaurant:"Restoran", fast_food:"Hızlı yemek", bar:"Bar", pub:"Pub", biergarten:"Biergarten", cafe:"Kafe" };
+const DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+
+// OSM opening_hours alanının yaygın biçimlerini çözer: "Mo-Fr 11:00-23:00; Sa,Su 12:00-01:00; Mo off", "24/7".
+// Çözülemeyen bir şey görürse null döner (saat bilinmiyor).
+function parseOsmHours(str){
+  if(!str) return null;
+  str=String(str).trim();
+  if(/^24\/7$/.test(str)) return {always:true,rules:[]};
+  const perDay=[null,null,null,null,null,null,null];
+  const parts=str.split(/\s*(?:;|\|\|)\s*/).filter(Boolean);
+  for(let part of parts){
+    part=part.replace(/"[^"]*"/g,"").trim();
+    if(/^(PH|SH)\b/.test(part)) continue;              // resmi tatil kuralları: atla
+    let m=part.match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:\s*[-,]\s*(?:Mo|Tu|We|Th|Fr|Sa|Su))*)(?:\s*,\s*PH)?\s*(.*)$/);
+    let days, rest;
+    if(m){ days=expandDays(m[1].replace(/\s+/g,"")); rest=m[2].trim(); }
+    else { days=[0,1,2,3,4,5,6]; rest=part; }
+    if(!days) return null;
+    rest=rest.replace(/\bopen\b/,"").trim();
+    let spans;
+    if(/^(off|closed)$/i.test(rest)) spans=[];
+    else{
+      spans=[];
+      for(const t of rest.replace(/\s+/g,"").split(",").filter(Boolean)){
+        const tm=t.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})\+?$/) || t.match(/^(\d{1,2}):(\d{2})\+$/);
+        if(!tm) return null;
+        const o=Number(tm[1])*60+Number(tm[2]);
+        let c= tm[3]!=null ? Number(tm[3])*60+Number(tm[4]) : o+6*60;
+        if(c<=o) c+=1440;
+        spans.push([o,c]);
+      }
+    }
+    days.forEach(d=>perDay[d]=spans);
+  }
+  const rules=[];
+  perDay.forEach((spans,d)=>{ (spans||[]).forEach(([o,c])=>rules.push({d:String(d),o,c})); });
+  if(perDay.every(x=>x===null)) return null;
+  return {always:false,rules};
+}
+function expandDays(sel){
+  const out=new Set();
+  for(const piece of sel.split(",")){
+    const r=piece.split("-");
+    const a=DAYS.indexOf(r[0]), b= r[1]!=null ? DAYS.indexOf(r[1]) : a;
+    if(a<0||b<0) return null;
+    for(let i=a;;i=(i+1)%7){ out.add(i); if(i===b) break; }
+  }
+  return [...out];
+}
+function osmToVenue(e){
+  const t=e.tags||{};
+  const lat=e.lat!=null?e.lat:(e.center&&e.center.lat), lon=e.lon!=null?e.lon:(e.center&&e.center.lon);
+  if(lat==null||lon==null||!t.name) return null;
+  const am=t.amenity;
+  const c= am==="biergarten" ? "beer" : (am==="bar"||am==="pub") ? "bar" : am==="cafe" ? "cafe" : "food";
+  const cuisines=(t.cuisine||"").split(";").map(x=>x.trim().toLowerCase()).filter(Boolean);
+  let kind=cuisines.map(x=>CUISINE_TR[x]).filter(Boolean).slice(0,2).join(" · ");
+  if(!kind && (t["diet:vegan"]==="only")) kind="Vegan";
+  kind = kind ? (am==="restaurant"? kind : AMENITY_TR[am]+" · "+kind) : (AMENITY_TR[am]||"");
+  const street=[t["addr:street"],t["addr:housenumber"]].filter(Boolean).join(" ");
+  const h=parseOsmHours(t.opening_hours);
+  const extras=[];
+  if(t.outdoor_seating==="yes") extras.push("Dış mekan oturma var");
+  if(t["diet:vegan"]==="yes"||t["diet:vegan"]==="only") extras.push("Vegan seçenek");
+  if(t.wheelchair==="yes") extras.push("Tekerlekli sandalyeye uygun");
+  return {
+    id:"o_"+e.type[0]+e.id, live:true, src:"osm",
+    n:t.name, c, k:kind, a:street || t["addr:suburb"] || "",
+    p:0, lat, lon, rating:null, ratingCount:0,
+    rules:h?h.rules:null, always:!!(h&&h.always),
+    url:null, t:extras.join(" · ")
+  };
+}
+async function overpass(query){
+  let lastErr;
+  for(const url of OVERPASS){
+    try{
+      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),25000);
+      const r=await fetch(url,{method:"POST",body:"data="+encodeURIComponent(query),headers:{"Content-Type":"application/x-www-form-urlencoded"},signal:ctrl.signal});
+      clearTimeout(timer);
+      if(r.ok) return await r.json();
+      lastErr=new Error("OpenStreetMap şu an yoğun (HTTP "+r.status+").");
+    }catch(err){ lastErr=new Error("OpenStreetMap'e ulaşılamadı."); }
+  }
+  throw lastErr;
+}
+async function fetchOSM(origin, radiusKm, cats){
+  const amenities=[...new Set(cats.flatMap(c=>OSM_AMENITY[c]||[]))];
+  if(!amenities.length) return [];
+  const r=Math.round(Math.min(6,radiusKm)*1000);
+  const key=["osm",origin.lat.toFixed(3),origin.lon.toFixed(3),r,amenities.sort().join(",")].join("|");
+  if(live.cache.has(key)) return live.cache.get(key);
+  const q=`[out:json][timeout:25];nwr["amenity"~"^(${amenities.join("|")})$"]["name"](around:${r},${origin.lat.toFixed(5)},${origin.lon.toFixed(5)});out center tags 2000;`;
+  const data=await overpass(q);
+  const ids=[];
+  (data.elements||[]).forEach(e=>{ const v=osmToVenue(e); if(v){ BY_ID[v.id]=v; ids.push(v.id); } });
+  live.cache.set(key,ids);
+  return ids;
+}
+async function fetchLive(origin, radiusKm, cats){
+  return live.source==="google" ? fetchGoogle(origin,radiusKm,cats) : fetchOSM(origin,radiusKm,cats);
+}
+function useLive(){ return !live.failed; }
+
 
 /* ================= konum (GPS) ================= */
 const gps = { pos:null, asking:false, error:null };
@@ -191,7 +310,7 @@ function originPoint(){
   if(o.gps) return gps.pos ? {label:"Konumun",lat:gps.pos.lat,lon:gps.pos.lon,gps:true} : {...ORIGINS.marienplatz};
   return o;
 }
-function activeCats(cats){ return useLive()? cats.filter(c=>CATS[c].types) : cats; }
+function activeCats(cats){ return useLive() && live.source==="google" ? cats.filter(c=>CATS[c].types) : cats; }
 function effective(){
   const c=state.cfg;
   if(state.flow){
@@ -263,7 +382,7 @@ function cardEl(v){
   const foot=el("div","footrow");
   const a=el("a","gmaps","Google Maps'te aç ↗"); a.href=mapsUrl(v); a.target="_blank"; a.rel="noopener";
   foot.appendChild(a);
-  if(v.live) foot.appendChild(el("span","attr","Veri: Google Maps"));
+  if(v.live) foot.appendChild(el("span","attr", v.src==="osm" ? "© OpenStreetMap katkıcıları" : "Veri: Google Maps"));
   body.appendChild(foot);
   card.append(cover,body);
   return card;
@@ -281,7 +400,7 @@ function render(){
   ["#aPass","#aLike","#aStar"].forEach(s=>$(s).disabled=!enable);
   $("#aUndo").disabled = !canUndo();
   if(state.loading){
-    const box=el("div","empty"); box.appendChild(el("div","spinner")); box.appendChild(el("p",null, gps.asking?"Konumun alınıyor…":(useLive()?"Yakındaki mekanlar Google'dan geliyor…":"Mekanlar hazırlanıyor…")));
+    const box=el("div","empty"); box.appendChild(el("div","spinner")); box.appendChild(el("p",null, gps.asking?"Konumun alınıyor…":(useLive()?"Yakındaki mekanlar aranıyor…":"Mekanlar hazırlanıyor…")));
     deckEl.appendChild(box); return;
   }
   if(state.error){ deckEl.appendChild(emptyBox("Mekanlar yüklenemedi",state.error,[["Tekrar dene",()=>rebuild(),true],["Örnek veriyle devam",()=>{live.failed="Örnek veriye geçildi.";rebuild();}]])); return; }
@@ -336,7 +455,7 @@ function renderSummary(){
   }
   s.appendChild(el("span","pill mono",String(e.radius).replace(".",",")+" km"));
   s.appendChild(el("span","pill",(e.openOnly?(e.hour==="now"?"Şimdi açık":timeCtx(e.hour).label+" açık"):"Tüm saatler")));
-  s.appendChild(el("span","pill"+(useLive()?" live":""), useLive()?"Canlı":"Örnek veri"));
+  s.appendChild(el("span","pill"+(useLive()?" live":""), useLive()?(live.source==="osm"?"Canlı · OSM":"Canlı · Google"):"Örnek veri"));
 }
 
 /* ================= swipe ================= */
@@ -503,11 +622,13 @@ function fillFilter(){
   const hs=$("#fHour"); hs.textContent="";
   HOURS.forEach(h=>{const op=el("option",null,h==="now"?"Şimdi":fmt(Number(h)*60)); op.value=h; hs.appendChild(op);}); hs.value=draft.hour;
   $("#fOpen").checked=draft.openOnly;
-  chipSet("#fCats",Object.entries(CATS).filter(([k,v])=>!useLive()||v.types).map(([k,v])=>[k,v.label]),draft.cats);
+  chipSet("#fCats",Object.entries(CATS).filter(([k,v])=>!(useLive()&&live.source==="google")||v.types).map(([k,v])=>[k,v.label]),draft.cats);
   chipSet("#fPrice",[[1,"€"],[2,"€€"],[3,"€€€"],[4,"€€€€"]],draft.prices);
   $("#dataNote").textContent = useLive()
-    ? "Canlı veri: mekanlar, puanlar ve saatler Google Maps'ten geliyor."
-    : (live.failed ? live.failed+" Şu an örnek veri kullanılıyor." : "Örnek veri: Münih'teki gerçek mekanlar, açılış saatleri tahmini. config.js'e Google anahtarı eklenince canlı veri gelir.");
+    ? (live.source==="osm"
+        ? "Canlı veri: mekanlar ve açılış saatleri OpenStreetMap'ten geliyor (ücretsiz, anahtarsız). Fiyat ve puan bilgisi yok; puan için karttaki Google Maps linkine bak. Saati girilmemiş mekanlar \"sadece açık\" filtresinde gizlenir."
+        : "Canlı veri: mekanlar, puanlar ve saatler Google Maps'ten geliyor.")
+    : (live.failed ? live.failed+" Şu an örnek veri kullanılıyor." : "Örnek veri: Münih'teki gerçek mekanlar, açılış saatleri tahmini.");
 }
 function chipSet(sel,opts,arr){
   const box=$(sel); box.textContent="";

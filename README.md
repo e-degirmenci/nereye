@@ -10,8 +10,10 @@ Yakındaki mekanları Tinder gibi swipe'layarak seçmek için bir web uygulamas�
 
 ## Veri
 
-`config.js` içindeki `googleMapsApiKey` boşsa uygulama `data.js`'teki örnek Münih verisiyle çalışır (gerçek mekanlar, tahmini saatler).
-Anahtar eklenince mekanlar, puanlar ve açılış saatleri canlı olarak Google Places'ten gelir.
+Varsayılan olarak mekanlar ve açılış saatleri **OpenStreetMap**'ten (Overpass API) canlı gelir: ücretsiz, anahtar ve kart gerektirmez. Veri © OpenStreetMap katkıcıları, ODbL lisansı.
+OpenStreetMap'e ulaşılamazsa uygulama `data.js`'teki örnek Münih verisine geçebilir.
+
+İsteğe bağlı: `config.js` içine bir Google Maps anahtarı girilirse kaynak Google Places olur (puanlar dahil).
 
 Google içeriği kalıcı olarak saklanmaz: sonuçlar sadece açık oturum boyunca bellekte tutulur, favorilerde yalnızca mekan kimliği, adı ve Google Maps linki kalır.
 
